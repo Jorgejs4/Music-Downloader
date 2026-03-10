@@ -1,0 +1,11 @@
+Spotify
+
+client id 6b15b76cdde547c5a10c50f0fa5f0f77
+client secret e3cbe86144484f37bc333a663e7e5d86
+
+Genius
+
+client secret lBK6JzhO0vuxGnehFlPSmeNTic57RTIJpFIfuJJp3RISG3lZBMpahuTl71J-kAJmorXQIoakuFxVRoNxADQ4HA
+
+lista:
+https://open.spotify.com/playlist/6zQDdX0fspvpuaWBBwBjHj?si=0a684f5e9eb34eb7&pt=25e08f25e5c4e8833e8ec2e72df324f4

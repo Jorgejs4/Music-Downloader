@@ -1,0 +1,12 @@
+SPOTIFY_CLIENT_ID     = "6b15b76cdde547c5a10c50f0fa5f0f77"
+SPOTIFY_CLIENT_SECRET = "e3cbe86144484f37bc333a663e7e5d86"
+SPOTIFY_REDIRECT_URI  = "http://127.0.0.1:8888/callback"
+
+
+GENIUS_TOKEN = "lBK6JzhO0vuxGnehFlPSmeNTic57RTIJpFIfuJJp3RISG3lZBMpahuTl71J-kAJmorXQIoakuFxVRoNxADQ4HA"
+
+# ID o URL de tu playlist de Spotify
+PLAYLIST_ID = "6zQDdX0fspvpuaWBBwBjHj"
+
+# Carpeta de destino para los MP3
+OUTPUT_DIR = "./canciones"
