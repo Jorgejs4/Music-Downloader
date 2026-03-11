@@ -4,93 +4,85 @@ import time
 import csv
 import sys
 import subprocess
+import shutil
 from dotenv import load_dotenv
 
 # Cargar variables de entorno
 load_dotenv()
 
 # ==============================
-# 🔴 CONFIGURACIÓN
+# 🔴 CONFIGURACIÓN (v6.0 - Auto-CSV Mobile)
 # ==============================
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-OUTPUT_DIR = os.environ.get("OUTPUT_DIR", os.path.join(BASE_DIR, "canciones_auto"))
-DB_FILE = os.environ.get("DB_FILE", os.path.join(BASE_DIR, "downloaded.json"))
-CSV_FILE = os.path.join(BASE_DIR, "playlist.csv") # El archivo que descargues de Exportify
+# Detectar si estamos en Android para buscar en la carpeta de descargas del sistema
+IS_ANDROID = os.path.exists("/sdcard")
+DOWNLOADS_DIR = "/sdcard/Download" if IS_ANDROID else os.path.join(os.path.expanduser("~"), "Downloads")
+PROJECT_CSV = os.path.join(BASE_DIR, "playlist.csv")
+DB_FILE = os.path.join(BASE_DIR, "downloaded.json")
+MAIN_SCRIPT = os.path.join(BASE_DIR, "musicDownloader3.py")
 
-os.makedirs(OUTPUT_DIR, exist_ok=True)
+def find_and_move_csv():
+    """Busca un archivo CSV de Spotify en la carpeta de descargas del móvil"""
+    if not IS_ANDROID: return False
+    
+    print(f"🔍 Buscando nuevos archivos CSV en {DOWNLOADS_DIR}...")
+    files = [f for f in os.listdir(DOWNLOADS_DIR) if f.endswith('.csv') and ('spotify' in f.lower() or 'playlist' in f.lower() or 'liked' in f.lower())]
+    
+    if not files:
+        return False
+    
+    # Coger el más reciente
+    latest_file = max([os.path.join(DOWNLOADS_DIR, f) for f in files], key=os.path.getctime)
+    print(f"📦 Encontrado nuevo CSV: {os.path.basename(latest_file)}")
+    shutil.move(latest_file, PROJECT_CSV)
+    print(f"✅ Movido a: {PROJECT_CSV}")
+    return True
 
-# Cargar base de datos local
-if os.path.exists(DB_FILE) and os.path.getsize(DB_FILE) > 0:
-    try:
-        with open(DB_FILE, "r", encoding="utf-8") as f:
-            downloaded = set(json.load(f))
-    except (json.JSONDecodeError, ValueError):
-        print("⚠ Base de datos dañada, se reseteará.")
+def process_csv():
+    if not os.path.exists(PROJECT_CSV):
+        if not find_and_move_csv():
+            print("❌ ERROR: No se encuentra 'playlist.csv' ni archivos nuevos en Descargas.")
+            print("💡 TIP: Entra en Exportify desde tu Chrome, descarga el CSV y vuelve aquí.")
+            return
+
+    # Cargar base de datos local
+    if os.path.exists(DB_FILE):
+        try:
+            with open(DB_FILE, "r", encoding="utf-8") as f:
+                downloaded = set(json.load(f))
+        except:
+            downloaded = set()
+    else:
         downloaded = set()
-else:
-    downloaded = set()
 
-if not os.path.exists(CSV_FILE):
-    print(f"❌ ERROR: No encuentro el archivo '{CSV_FILE}'")
-    print("Por favor, descarga tus 'Liked Songs' desde Exportify, pon el archivo aquí y llámalo 'playlist.csv'")
-    sys.exit(1)
+    print(f"📖 Leyendo canciones desde {PROJECT_CSV}...")
+    
+    songs = []
+    with open(PROJECT_CSV, mode='r', encoding='utf-8') as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            title = row.get("Nombre de la canción") or row.get("Track Name") or row.get("Name")
+            artist = row.get("Nombre(s) del artista") or row.get("Artist Name(s)") or row.get("Artist")
+            album = row.get("Nombre del álbum") or row.get("Album Name") or "Unknown Album"
+            track_id = row.get("URL de la canción") or f"{artist}-{title}"
+            
+            if title and artist:
+                songs.append({"id": track_id, "title": title, "artist": artist, "album": album})
 
-print(f"📖 Leyendo canciones desde {CSV_FILE}...")
+    new_songs = [s for s in songs if s['id'] not in downloaded]
+    print(f"✅ Total: {len(songs)} | 🚀 Nuevas: {len(new_songs)}")
 
-current_songs = []
-
-with open(CSV_FILE, mode='r', encoding='utf-8') as f:
-    # Exportify suele usar estos nombres de columna
-    reader = csv.DictReader(f)
-    for row in reader:
-        # Intentamos detectar los nombres de las columnas (pueden variar según la herramienta)
-        title = row.get("Nombre de la canción") or row.get("Track Name") or row.get("Name") or row.get("track_name")
-        artist = row.get("Nombre(s) del artista") or row.get("Artist Name(s)") or row.get("Artist") or row.get("artist_name")
-        album = row.get("Nombre del álbum") or row.get("Album Name") or row.get("Album") or row.get("album_name") or "Unknown Album"
-
+    for i, song in enumerate(new_songs):
+        print(f"\n[ {i+1} / {len(new_songs)} ] Descargando: {song['artist']} - {song['title']}")
+        cmd = [sys.executable, MAIN_SCRIPT, "-a", song['artist'], "-t", song['title'], "--album", song['album'], "--send"]
         
-        if title and artist:
-            identifier = f"{artist.strip()} - {title.strip()}"
-            current_songs.append({
-                "id": identifier,
-                "artist": artist.strip(),
-                "title": title.strip(),
-                "album": album.strip()
-            })
+        try:
+            subprocess.run(cmd, check=True)
+            downloaded.add(song['id'])
+            with open(DB_FILE, "w", encoding="utf-8") as f:
+                json.dump(list(downloaded), f, indent=4)
+        except:
+            print(f"❌ Error en {song['title']}")
 
-print(f"✅ Total canciones encontradas en el CSV: {len(current_songs)}")
-
-# ==============================
-# 🎵 PROCESAR CANCIONES
-# ==============================
-new_count = 0
-for song in current_songs:
-    if song["id"] in downloaded:
-        continue
-    
-    new_count += 1
-    print(f"⬇️ [{new_count}] Descargando y enviando: {song['id']}")
-    
-    cmd = [
-        sys.executable, 
-        os.path.join(BASE_DIR, "musicDownloader3.py"), 
-        "-a", song["artist"], 
-        "-t", song["title"], 
-        "--album", song["album"],
-        "--send"
-    ]
-    
-    # Ejecutar la descarga
-    result = subprocess.run(cmd, check=False)
-    
-    # Marcar como descargada y guardar progreso
-    downloaded.add(song["id"])
-    with open(DB_FILE, "w", encoding="utf-8") as f:
-        json.dump(list(downloaded), f, indent=2)
-    
-    time.sleep(1)
-
-if new_count == 0:
-    print("✨ Todas las canciones ya estaban descargadas.")
-else:
-    print(f"✔ ¡Proceso completado! Se han procesado {new_count} canciones nuevas.")
+if __name__ == "__main__":
+    process_csv()
