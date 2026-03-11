@@ -37,10 +37,10 @@ def run_exportify_bot():
             print("🕒 Tienes 2 minutos para loguearte...")
         
         # Esperamos a que la tabla aparezca (esto indica que ya estamos dentro)
-        # Aumentamos el tiempo a 2 minutos para el primer logueo
+        # Aumentamos el tiempo a 60 segundos para que cargue bien
         try:
             print("⏳ Esperando a que cargue tu lista de canciones...")
-            page.wait_for_selector('table', timeout=3000)
+            page.wait_for_selector('table', timeout=60000)
             
             print("🔍 Buscando tus 'Liked Songs'...")
             # Buscamos la fila que dice 'Liked Songs' o 'Canciones que me gustan'
