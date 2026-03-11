@@ -44,9 +44,9 @@ def send_csv_to_phone():
 
         # --- AUTO-ARRANQUE EN MÓVIL ---
         print("🚀 Lanzando descarga en el móvil automáticamente...")
-        # 1. Abrir Termux
-        subprocess.run(["adb", "shell", "am", "start", "-n", "com.termux/.TermuxActivity"], check=True)
-        time.sleep(2) # Esperar a que abra
+        # 1. Abrir Termux (Nombre de actividad corregido)
+        subprocess.run(["adb", "shell", "am", "start", "-n", "com.termux/com.termux.app.TermuxActivity"], check=True)
+        time.sleep(3) # Esperar a que abra
         # 2. Escribir el comando y pulsar Enter (simulado)
         # Usamos %s para representar espacios en algunos comandos adb o escapamos espacios
         cmd_mvl = "cd Music-Downloader && python music_csv_auto.py"
