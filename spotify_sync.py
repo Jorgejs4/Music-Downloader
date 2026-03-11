@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # ==============================
-# 🔴 CONFIGURACIÓN
+# 🔴 CONFIGURACIÓN (v1.1 - SpotDL Engine)
 # ==============================
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_FILE = os.path.join(BASE_DIR, "downloaded.json")
