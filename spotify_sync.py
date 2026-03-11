@@ -11,7 +11,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # ==============================
-# 🔴 CONFIGURACIÓN (v2.0 - Ninja Embed Engine)
+# 🔴 CONFIGURACIÓN (v2.1 - Super Ninja Engine)
 # ==============================
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_FILE = os.path.join(BASE_DIR, "downloaded.json")
@@ -30,52 +30,71 @@ else:
 
 def get_songs_via_embed(url):
     """Extrae canciones directamente del Embed de Spotify (sin API, sin Premium)"""
-    print(f"🔍 Extrayendo canciones (Modo Invisible)...")
+    print(f"🔍 Extrayendo canciones (Modo Invisible v2.1)...")
     
     try:
-        # Extraer ID de la playlist
         playlist_id = url.split('/')[-1].split('?')[0]
         embed_url = f"https://open.spotify.com/embed/playlist/{playlist_id}"
         
         headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36'
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36',
+            'Accept-Language': 'es-ES,es;q=0.9'
         }
         
         response = requests.get(embed_url, headers=headers, timeout=15)
         if response.status_code != 200:
-            print(f"❌ Error al acceder a Spotify (Status {response.status_code})")
             return []
 
-        # Buscar el JSON de la playlist en el código HTML
-        # Spotify guarda los datos en un script de tipo application/json
-        match = re.search(r'<script id="resource" type="application/json">(.*?)</script>', response.text)
+        # Intentar encontrar el JSON de metadatos (formato moderno)
+        # Buscamos bloques que empiecen con {"tracks":
+        matches = re.findall(r'({[^{]*?"tracks":.*?"items":.*?\]})', response.text)
         
-        if not match:
-            # Intento secundario: buscar cualquier bloque de JSON que contenga tracks
-            match = re.search(r'{"track":.*?"uri":".*?"}', response.text)
-            if not match:
-                print("❌ No se pudo encontrar la lista de canciones en la página.")
-                return []
-            
-        data = json.loads(match.group(1))
-        
-        # Estructura del Embed de Spotify
-        tracks_data = data.get('tracks', {}).get('items', [])
-        if not tracks_data and 'track' in data: # Caso de un solo track o estructura distinta
-            tracks_data = [data]
-
         songs = []
-        for item in tracks_data:
-            track = item.get('track', item)
-            if not track: continue
-            
-            songs.append({
-                "id": track.get('id') or track.get('uri'),
-                "title": track.get('name'),
-                "artist": track.get('artists')[0].get('name') if track.get('artists') else "Unknown Artist",
-                "album": track.get('album', {}).get('name', "Spotify Playlist")
-            })
-            
+        if matches:
+            for m in matches:
+                try:
+                    data = json.loads(m)
+                    items = data.get('tracks', {}).get('items', [])
+                    for item in items:
+                        track = item.get('track', item)
+                        if track and 'name' in track:
+                            songs.append({
+                                "id": track.get('id') or track.get('uri'),
+                                "title": track.get('name'),
+                                "artist": track.get('artists')[0].get('name') if track.get('artists') else "Unknown Artist",
+                                "album": track.get('album', {}).get('name', "Playlist")
+                            })
+                except: continue
+
+        # Si el método A falla, intentamos el B (formato heredado)
+        if not songs:
+            match = re.search(r'<script id="resource" type="application/json">(.*?)</script>', response.text)
+            if match:
+                data = json.loads(match.group(1))
+                items = data.get('tracks', {}).get('items', [])
+                for item in items:
+                    track = item.get('track', item)
+                    songs.append({
+                        "id": track.get('id'),
+                        "title": track.get('name'),
+                        "artist": track.get('artists')[0].get('name') if track.get('artists') else "Unknown Artist",
+                        "album": track.get('album', {}).get('name', "Playlist")
+                    })
+
+        # Último recurso: escaneo manual de strings si todo lo demás falla
+        if not songs:
+            # Buscar patrones del tipo: "name":"NombreCancion","artists":[{"name":"Artista"}]
+            found = re.findall(r'"name":"([^"]+?)","artists":\[{"name":"([^"]+?)"}\]', response.text)
+            for title, artist in found:
+                # Evitar duplicados y basura
+                if title not in [s['title'] for s in songs]:
+                    songs.append({
+                        "id": f"{artist}-{title}",
+                        "title": title,
+                        "artist": artist,
+                        "album": "Spotify Playlist"
+                    })
+
         return songs
     except Exception as e:
         print(f"❌ Error de extracción: {e}")
@@ -110,7 +129,6 @@ def sync():
         
         try:
             subprocess.run(cmd, check=True)
-            # Registrar como descargada
             if song['id']:
                 downloaded.add(song['id'])
                 with open(DB_FILE, "w", encoding="utf-8") as f:
