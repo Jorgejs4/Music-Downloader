@@ -47,11 +47,10 @@ def run_exportify_bot():
             
             print("🔍 Buscando tus 'Liked Songs'...")
             # Buscamos la fila que dice 'Liked Songs' o 'Canciones que me gustan'
-            # Usamos una expresión regular para que sea flexible con el idioma
             row = page.get_by_role("row").filter(has_text=re.compile(r"Liked Songs|Canciones que me gustan", re.IGNORECASE))
             
-            # Si hay varias filas (raro), cogemos la primera
-            export_button = row.locator('button:has-text("Export")').first
+            # Buscamos el botón de Exportar/Export dentro de esa fila
+            export_button = row.locator('button').filter(has_text=re.compile(r"Exportar|Export", re.IGNORECASE)).first
             
             print("📥 Iniciando descarga...")
             with page.expect_download() as download_info:
