@@ -12,7 +12,7 @@ Music Downloader 4.0 - Profesional (Versión con ADB)
 - ENVÍO AUTOMÁTICO A MÓVIL VÍA ADB
 """
 
-import os, re, csv, time, logging, subprocess
+import os, re, csv, time, logging, subprocess, shutil
 import requests, lyricsgenius
 from mutagen.id3 import ID3, TIT2, TPE1, TALB, USLT, APIC
 import yt_dlp
@@ -22,11 +22,19 @@ from dotenv import load_dotenv
 # Cargar configuración desde .env
 load_dotenv()
 
+# ─── DETECCIÓN DE ENTORNO ──────────────────────────────────
+IS_ANDROID = os.path.exists("/sdcard") and shutil.which("termux-setup-storage") is not None
+
 # ─── CONFIG ────────────────────────────────────────────────
 GENIUS_TOKEN = os.environ.get("GENIUS_TOKEN")
 BASE_DIR     = os.path.dirname(os.path.abspath(__file__))
 CSV_PATH     = os.environ.get("CSV_PATH", os.path.join(BASE_DIR, "playlist.csv"))
-OUTPUT_DIR   = os.environ.get("OUTPUT_DIR", os.path.join(BASE_DIR, "canciones_auto"))
+# En Android, preferimos una carpeta de sistema
+if IS_ANDROID:
+    OUTPUT_DIR = os.path.join("/sdcard", "Music", "music downloader")
+else:
+    OUTPUT_DIR = os.environ.get("OUTPUT_DIR", os.path.join(BASE_DIR, "canciones_auto"))
+
 PHONE_DEST   = "/sdcard/Music/music downloader/"
 SKIP_EXISTING = True
 MAX_THREADS   = 4
@@ -60,10 +68,25 @@ def get_song_dir(base, artist, album):
     os.makedirs(folder, exist_ok=True)
     return folder
 
-# ─── ADB SEND ──────────────────────────────────────────────
+# ─── MEDIA SCAN ────────────────────────────────────────────
+def scan_media(path):
+    """Notifica al sistema Android que hay un nuevo archivo de medios"""
+    if IS_ANDROID and shutil.which("termux-media-scan"):
+        subprocess.run(["termux-media-scan", path], capture_output=True)
+    elif not IS_ANDROID:
+        # Si no es Android, no hacemos nada (es local en PC)
+        pass
+
+# ─── ADB SEND / LOCAL MOVE ─────────────────────────────────
 def send_to_mobile(local_path, artist, album):
+    if IS_ANDROID:
+        # Si ya estamos en Android, el archivo ya está en su sitio (OUTPUT_DIR es /sdcard/...)
+        log.info(f"✓ Archivo guardado localmente en Android: {os.path.basename(local_path)}")
+        scan_media(local_path)
+        return True
+
     try:
-        # Verificar si hay dispositivos conectados y obtener el primero con estado 'device'
+        # Lógica original de ADB para PC
         res = subprocess.run(["adb", "devices"], capture_output=True, text=True)
         lines = res.stdout.splitlines()[1:]
         
@@ -77,19 +100,14 @@ def send_to_mobile(local_path, artist, album):
             log.warning("⚠ No hay móvil detectado por ADB. Saltando envío.")
             return False
         
-        # Estructura de carpetas: Artista/Álbum
         dest_folder = f"{PHONE_DEST}{sanitize(artist)}/{sanitize(album)}/"
-        
-        # Asegurar que la carpeta de destino existe en el móvil
         subprocess.run(["adb", "-s", device_serial, "shell", f"mkdir -p '{dest_folder}'"], check=False)
         
         filename = os.path.basename(local_path)
         dest = dest_folder + filename
         log.info(f"Enviando a móvil ({device_serial}): {filename} -> {dest_folder} ...")
-        # Usamos -s para especificar el dispositivo exacto
         subprocess.run(["adb", "-s", device_serial, "push", local_path, dest], check=True)
         
-        # Enviar archivo de letra sincronizada (.lrc) si existe
         lrc_local = os.path.splitext(local_path)[0] + ".lrc"
         if os.path.exists(lrc_local):
             lrc_filename = os.path.basename(lrc_local)
@@ -97,7 +115,6 @@ def send_to_mobile(local_path, artist, album):
             log.info(f"Enviando letra sincronizada: {lrc_filename} ...")
             subprocess.run(["adb", "-s", device_serial, "push", lrc_local, lrc_dest], check=True)
 
-        # Forzar el escaneo de medios para que aparezca en reproductores como Retro Music
         subprocess.run(["adb", "-s", device_serial, "shell", f"am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d 'file://{dest}'"], capture_output=True)
         
         return True
