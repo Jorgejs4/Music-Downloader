@@ -1,11 +1,16 @@
 import os
 import json
 import time
+import builtins
 import spotipy
 from spotipy.oauth2 import SpotifyOAuth
 import sys
 import subprocess
 from dotenv import load_dotenv
+
+# Monkeypatch para corregir bug de spotipy en Python 3.13+
+if not hasattr(builtins, 'raw_input'):
+    builtins.raw_input = builtins.input
 
 # Cargar variables de entorno
 load_dotenv()
@@ -20,7 +25,8 @@ MAIN_SCRIPT = os.path.join(BASE_DIR, "musicDownloader3.py")
 CLIENT_ID = os.environ.get("SPOTIFY_CLIENT_ID")
 CLIENT_SECRET = os.environ.get("SPOTIFY_CLIENT_SECRET")
 REDIRECT_URI = os.environ.get("SPOTIFY_REDIRECT_URI", "http://localhost:8888/callback")
-SCOPE = "user-library-read"
+PLAYLIST_ID = os.environ.get("SPOTIFY_PLAYLIST_ID")
+SCOPE = "user-library-read playlist-read-private"
 
 # Cargar base de datos local de canciones ya descargadas
 if os.path.exists(DB_FILE):
@@ -32,29 +38,43 @@ if os.path.exists(DB_FILE):
 else:
     downloaded = set()
 
-def get_liked_songs(sp):
-    """Obtiene todas las canciones de 'Canciones que me gustan' de Spotify"""
+def get_songs(sp):
+    """Obtiene canciones de 'Liked Songs' o de una Playlist específica"""
     results = []
     offset = 0
-    print("🔍 Obteniendo tu biblioteca de Spotify...")
     
-    while True:
-        response = sp.current_user_saved_tracks(limit=50, offset=offset)
-        if not response['items']:
-            break
-        
-        for item in response['items']:
-            track = item['track']
-            results.append({
-                "id": track['id'],
-                "title": track['name'],
-                "artist": track['artists'][0]['name'],
-                "album": track['album']['name']
-            })
-        
-        offset += len(response['items'])
-        print(f"📦 Cargadas {offset} canciones...")
-        
+    if PLAYLIST_ID:
+        print(f"🔍 Obteniendo canciones de la Playlist: {PLAYLIST_ID}...")
+        while True:
+            response = sp.playlist_items(PLAYLIST_ID, limit=50, offset=offset)
+            if not response['items']: break
+            for item in response['items']:
+                track = item['track']
+                if not track: continue # Evitar errores con tracks borrados
+                results.append({
+                    "id": track['id'],
+                    "title": track['name'],
+                    "artist": track['artists'][0]['name'],
+                    "album": track['album']['name']
+                })
+            offset += len(response['items'])
+            print(f"📦 Cargadas {offset} canciones...")
+    else:
+        print("🔍 Obteniendo tus 'Canciones que me gustan'...")
+        while True:
+            response = sp.current_user_saved_tracks(limit=50, offset=offset)
+            if not response['items']: break
+            for item in response['items']:
+                track = item['track']
+                results.append({
+                    "id": track['id'],
+                    "title": track['name'],
+                    "artist": track['artists'][0]['name'],
+                    "album": track['album']['name']
+                })
+            offset += len(response['items'])
+            print(f"📦 Cargadas {offset} canciones...")
+            
     return results
 
 def sync():
@@ -68,10 +88,18 @@ def sync():
         client_secret=CLIENT_SECRET,
         redirect_uri=REDIRECT_URI,
         scope=SCOPE,
-        open_browser=False # Ideal para Termux/CLI
+        open_browser=False
     ))
 
-    all_songs = get_liked_songs(sp)
+    try:
+        all_songs = get_songs(sp)
+    except Exception as e:
+        print(f"❌ Error al obtener canciones de Spotify: {e}")
+        if "403" in str(e):
+            print("\n💡 TIP: Spotify está bloqueando el acceso a 'Liked Songs'.")
+            print("Crea una Playlist, pon tus canciones ahí y añade SPOTIFY_PLAYLIST_ID a tu .env")
+        return
+
     new_songs = [s for s in all_songs if s['id'] not in downloaded]
 
     print(f"✅ Total en Spotify: {len(all_songs)}")
