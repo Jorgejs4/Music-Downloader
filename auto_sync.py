@@ -48,12 +48,24 @@ def send_csv_to_phone():
         subprocess.run(["adb", "shell", "am", "start", "-n", "com.termux/com.termux.app.TermuxActivity"], check=True)
         time.sleep(3) # Esperar a que abra
         # 2. Escribir el comando y pulsar Enter (simulado)
-        # Usamos %s para representar espacios en algunos comandos adb o escapamos espacios
+        print("⌨ Escribiendo comando en Termux...")
+        
+        # Primero enviamos un par de retrocesos por si había algo escrito
+        for _ in range(5):
+            subprocess.run(["adb", "shell", "input", "keyevent", "67"], check=False) # 67 es BACKSPACE
+
+        # Comando completo
         cmd_mvl = "cd Music-Downloader && python music_csv_auto.py"
-        # Escapamos los espacios para el comando 'input text'
-        cmd_escaped = cmd_mvl.replace(" ", "\\ ")
-        subprocess.run(["adb", "shell", "input", "text", cmd_escaped], check=True)
-        subprocess.run(["adb", "shell", "input", "keyevent", "66"], check=True) # 66 es ENTER
+        
+        # Enviamos el comando letra a letra o en bloques pequeños para mayor fiabilidad
+        # ADB 'input text' no se lleva bien con '&&' a veces, así que usamos un truco
+        # Enviamos primero el CD y luego el resto
+        subprocess.run(["adb", "shell", "input", "text", "cd\\ Music-Downloader"], check=True)
+        subprocess.run(["adb", "shell", "input", "keyevent", "66"], check=True) # ENTER
+        time.sleep(1)
+        subprocess.run(["adb", "shell", "input", "text", "python\\ music_csv_auto.py"], check=True)
+        subprocess.run(["adb", "shell", "input", "keyevent", "66"], check=True) # ENTER
+        
         print("✅ ¡Móvil activado y descargando!")
 
     except Exception as e:
