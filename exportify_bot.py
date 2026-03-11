@@ -23,10 +23,13 @@ def run_exportify_bot():
         
         # 0. Paso inicial: Pulsar el botón de comenzar si aparece
         try:
-            # Buscamos el botón que suele decir "Get Started"
-            start_button = page.get_by_role("link", name=re.compile(r"Get Started", re.IGNORECASE))
+            # Buscamos el botón por ID exacto (#loginButton) o por el texto "Comenzar"
+            start_button = page.locator("#loginButton")
+            if start_button.count() == 0:
+                start_button = page.get_by_role("button", name=re.compile(r"Comenzar|Get Started", re.IGNORECASE))
+            
             if start_button.count() > 0:
-                print("🚀 Pulsando botón de inicio...")
+                print("🚀 Pulsando botón de inicio (Comenzar)...")
                 start_button.click()
         except Exception as e:
             print(f"ℹ No se encontró el botón de inicio o ya se saltó: {e}")
