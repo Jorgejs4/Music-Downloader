@@ -11,7 +11,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # ==============================
-# 🔴 CONFIGURACIÓN (v2.1 - Super Ninja Engine)
+# 🔴 CONFIGURACIÓN (v2.2 - Deep Scanner Engine)
 # ==============================
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_FILE = os.path.join(BASE_DIR, "downloaded.json")
@@ -30,7 +30,7 @@ else:
 
 def get_songs_via_embed(url):
     """Extrae canciones directamente del Embed de Spotify (sin API, sin Premium)"""
-    print(f"🔍 Extrayendo canciones (Modo Invisible v2.1)...")
+    print(f"🔍 Extrayendo canciones (Modo Invisible v2.2)...")
     
     try:
         playlist_id = url.split('/')[-1].split('?')[0]
@@ -38,58 +38,70 @@ def get_songs_via_embed(url):
         
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36',
-            'Accept-Language': 'es-ES,es;q=0.9'
+            'Accept-Language': 'es-ES,es;q=0.9',
+            'Referer': 'https://open.spotify.com/'
         }
         
         response = requests.get(embed_url, headers=headers, timeout=15)
         if response.status_code != 200:
+            print(f"❌ Error HTTP {response.status_code}")
             return []
 
-        # Intentar encontrar el JSON de metadatos (formato moderno)
-        # Buscamos bloques que empiecen con {"tracks":
-        matches = re.findall(r'({[^{]*?"tracks":.*?"items":.*?\]})', response.text)
-        
         songs = []
-        if matches:
-            for m in matches:
-                try:
-                    data = json.loads(m)
-                    items = data.get('tracks', {}).get('items', [])
-                    for item in items:
-                        track = item.get('track', item)
-                        if track and 'name' in track:
-                            songs.append({
-                                "id": track.get('id') or track.get('uri'),
-                                "title": track.get('name'),
-                                "artist": track.get('artists')[0].get('name') if track.get('artists') else "Unknown Artist",
-                                "album": track.get('album', {}).get('name', "Playlist")
-                            })
-                except: continue
+        
+        # Método 1: Búsqueda de bloques JSON estructurados (Resource)
+        json_matches = re.findall(r'<script id="resource" type="application/json">(.*?)</script>', response.text)
+        if not json_matches:
+            # Método 1.1: Búsqueda de bloques JSON en cualquier script
+            json_matches = re.findall(r'({[^{]*?"tracks":.*?"items":.*?\]})', response.text)
 
-        # Si el método A falla, intentamos el B (formato heredado)
-        if not songs:
-            match = re.search(r'<script id="resource" type="application/json">(.*?)</script>', response.text)
-            if match:
-                data = json.loads(match.group(1))
-                items = data.get('tracks', {}).get('items', [])
+        for m in json_matches:
+            try:
+                data = json.loads(m)
+                # Navegar por la estructura del JSON buscando tracks
+                # Soporta múltiples variantes de la estructura de Spotify
+                items = []
+                if 'tracks' in data and 'items' in data['tracks']:
+                    items = data['tracks']['items']
+                elif 'items' in data:
+                    items = data['items']
+                
                 for item in items:
                     track = item.get('track', item)
+                    if track and 'name' in track:
+                        songs.append({
+                            "id": track.get('id') or track.get('uri') or track.get('name'),
+                            "title": track.get('name'),
+                            "artist": track.get('artists', [{}])[0].get('name') or "Unknown Artist",
+                            "album": track.get('album', {}).get('name', "Playlist")
+                        })
+            except: continue
+
+        # Método 2: Escaneo de patrones de texto (Failsafe)
+        # Busca patrones como "name":"Song Name","artists":[{"name":"Artist Name"}]
+        if not songs:
+            # Esta regex es muy potente para capturar pares título-artista en el JS ofuscado
+            pattern = r'"name":"([^"]+?)","artists":\[{"name":"([^"]+?)"}\]'
+            found = re.findall(pattern, response.text)
+            for title, artist in found:
+                if title not in [s['title'] for s in songs] and title != "Spotify":
                     songs.append({
-                        "id": track.get('id'),
-                        "title": track.get('name'),
-                        "artist": track.get('artists')[0].get('name') if track.get('artists') else "Unknown Artist",
-                        "album": track.get('album', {}).get('name', "Playlist")
+                        "id": f"{artist}-{title}".replace(" ", "_"),
+                        "title": title,
+                        "artist": artist,
+                        "album": "Spotify Playlist"
                     })
 
-        # Último recurso: escaneo manual de strings si todo lo demás falla
+        # Método 3: Escaneo de títulos y artistas en el HTML renderizado (Failsafe final)
         if not songs:
-            # Buscar patrones del tipo: "name":"NombreCancion","artists":[{"name":"Artista"}]
-            found = re.findall(r'"name":"([^"]+?)","artists":\[{"name":"([^"]+?)"}\]', response.text)
-            for title, artist in found:
-                # Evitar duplicados y basura
-                if title not in [s['title'] for s in songs]:
+            # Buscar patrones de texto plano que Spotify a veces deja en el HTML
+            # ej: <span>Song Title</span><span>Artist Name</span>
+            pattern_html = r'<span[^>]*>([^<]+)</span>.*?<span[^>]*>([^<]+)</span>'
+            found_html = re.findall(pattern_html, response.text)
+            for title, artist in found_html:
+                if len(title) > 1 and len(artist) > 1:
                     songs.append({
-                        "id": f"{artist}-{title}",
+                        "id": f"{artist}-{title}".replace(" ", "_"),
                         "title": title,
                         "artist": artist,
                         "album": "Spotify Playlist"
