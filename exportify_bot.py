@@ -21,6 +21,16 @@ def run_exportify_bot():
         print("🌐 Entrando en Exportify...")
         page.goto("https://watsonbox.github.io/exportify/")
         
+        # 0. Paso inicial: Pulsar el botón de comenzar si aparece
+        try:
+            # Buscamos el botón que suele decir "Get Started"
+            start_button = page.get_by_role("link", name=re.compile(r"Get Started", re.IGNORECASE))
+            if start_button.count() > 0:
+                print("🚀 Pulsando botón de inicio...")
+                start_button.click()
+        except Exception as e:
+            print(f"ℹ No se encontró el botón de inicio o ya se saltó: {e}")
+
         # 1. Comprobar si hay que loguear
         if "Log In" in page.content():
             print("🔑 Por favor, inicia sesión en Spotify en la ventana que se ha abierto.")
@@ -30,7 +40,7 @@ def run_exportify_bot():
         # Aumentamos el tiempo a 2 minutos para el primer logueo
         try:
             print("⏳ Esperando a que cargue tu lista de canciones...")
-            page.wait_for_selector('table', timeout=120000)
+            page.wait_for_selector('table', timeout=3000)
             
             print("🔍 Buscando tus 'Liked Songs'...")
             # Buscamos la fila que dice 'Liked Songs' o 'Canciones que me gustan'
