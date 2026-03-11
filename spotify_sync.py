@@ -3,7 +3,6 @@ import json
 import time
 import sys
 import subprocess
-import re
 from dotenv import load_dotenv
 
 # Cargar variables de entorno
@@ -16,8 +15,8 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_FILE = os.path.join(BASE_DIR, "downloaded.json")
 MAIN_SCRIPT = os.path.join(BASE_DIR, "musicDownloader3.py")
 
-# El usuario puede poner el ID o la URL completa
-PLAYLIST_INPUT = os.environ.get("SPOTIFY_PLAYLIST_URL") or os.environ.get("SPOTIFY_PLAYLIST_ID")
+# El usuario pone el enlace de la playlist en el .env
+PLAYLIST_URL = os.environ.get("SPOTIFY_PLAYLIST_URL")
 
 # Cargar base de datos local
 if os.path.exists(DB_FILE):
@@ -29,59 +28,49 @@ if os.path.exists(DB_FILE):
 else:
     downloaded = set()
 
-def get_songs_via_ytdlp(playlist_url):
-    """Usa yt-dlp para obtener los nombres de las canciones sin usar la API de Spotify"""
-    print(f"🔍 Extrayendo canciones de la Playlist: {playlist_url}...")
-    print("⏳ Esto puede tardar unos segundos según el tamaño de la lista...")
+def get_songs_via_spotdl(url):
+    """Usa spotdl para obtener los metadatos de la playlist en JSON"""
+    print(f"🔍 Extrayendo canciones de la Playlist con spotdl...")
+    temp_json = os.path.join(BASE_DIR, "temp_playlist.spotdl")
     
-    # Limpiar el enlace si tiene ?si=...
-    clean_url = playlist_url.split('?')[0]
-    if not clean_url.startswith('http'):
-        clean_url = f"https://open.spotify.com/playlist/{clean_url}"
-
-    cmd = [
-        "yt-dlp",
-        "--flat-playlist",
-        "--dump-single-json",
-        "--quiet",
-        clean_url
-    ]
+    # Comando para guardar los metadatos en un archivo JSON sin descargar nada
+    cmd = ["spotdl", "save", url, "--save-file", temp_json]
     
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-        data = json.loads(result.stdout)
-        
-        songs = []
-        for entry in data.get('entries', []):
-            # yt-dlp suele devolver el título como "Artista - Canción" en Spotify
-            title_full = entry.get('title', 'Unknown')
-            # Intentar separar artista y título si es posible
-            if " - " in title_full:
-                artist, title = title_full.split(" - ", 1)
-            else:
-                artist, title = "Unknown Artist", title_full
+        subprocess.run(cmd, check=True, capture_output=True)
+        if not os.path.exists(temp_json):
+            return []
             
+        with open(temp_json, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            
+        songs = []
+        for track in data:
             songs.append({
-                "id": entry.get('id') or entry.get('url'), # Usamos el ID de spotify que nos da yt-dlp
-                "title": title.strip(),
-                "artist": artist.strip(),
-                "album": "Spotify Playlist"
+                "id": track.get("url") or track.get("name"),
+                "title": track.get("name"),
+                "artist": track.get("artists")[0] if track.get("artists") else "Unknown Artist",
+                "album": track.get("album_name", "Unknown Album")
             })
+            
+        # Limpiar temporal
+        os.remove(temp_json)
         return songs
     except Exception as e:
-        print(f"❌ Error al usar yt-dlp: {e}")
+        print(f"❌ Error al usar spotdl: {e}")
+        if "not found" in str(e).lower():
+            print("💡 TIP: Ejecuta 'pip install spotdl' en Termux primero.")
         return []
 
 def sync():
-    if not PLAYLIST_INPUT:
+    if not PLAYLIST_URL:
         print("❌ ERROR: Configura SPOTIFY_PLAYLIST_URL en tu .env")
-        print("Ejemplo: SPOTIFY_PLAYLIST_URL=https://open.spotify.com/playlist/tu_id")
         return
 
-    all_songs = get_songs_via_ytdlp(PLAYLIST_INPUT)
+    all_songs = get_songs_via_spotdl(PLAYLIST_URL)
     
     if not all_songs:
-        print("ℹ No se encontraron canciones. Asegúrate de que la playlist sea PÚBLICA.")
+        print("ℹ No se pudieron obtener canciones. Comprueba el enlace y tu conexión.")
         return
 
     new_songs = [s for s in all_songs if s['id'] not in downloaded]
@@ -104,10 +93,9 @@ def sync():
         try:
             subprocess.run(cmd, check=True)
             # Registrar como descargada
-            if song['id']:
-                downloaded.add(song['id'])
-                with open(DB_FILE, "w", encoding="utf-8") as f:
-                    json.dump(list(downloaded), f, indent=4)
+            downloaded.add(song['id'])
+            with open(DB_FILE, "w", encoding="utf-8") as f:
+                json.dump(list(downloaded), f, indent=4)
         except Exception as e:
             print(f"❌ Error descargando {song['title']}: {e}")
 
