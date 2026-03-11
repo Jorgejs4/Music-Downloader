@@ -46,36 +46,41 @@ def run_exportify_bot():
             # Esperar un poco extra para que los datos se carguen en la tabla
             page.wait_for_timeout(2000)
 
-            print("🔍 Buscando tus 'Liked Songs' / 'Canciones que me gustan'...")
-            # Intentar encontrar la fila con varios nombres posibles
-            patterns = [r"Liked Songs", r"Canciones que me gustan", r"Tus me gusta", r"Canciones que te gustan"]
-            row = None
-            for p in patterns:
-                row_locator = page.get_by_role("row").filter(has_text=re.compile(p, re.IGNORECASE))
-                if row_locator.count() > 0:
-                    row = row_locator.first
-                    print(f"✅ Encontrada fila con patrón: {p}")
-                    break
-
-            if not row:
-                # Si no encuentra la fila específica, buscamos cualquier botón de exportar como último recurso
-                print("⚠ No se encontró la fila específica, intentando buscar cualquier botón de exportar...")
-                export_button = page.locator('button').filter(has_text=re.compile(r"Exportar|Export", re.IGNORECASE)).first
+            print("🔍 Buscando la fila de 'Liked' / 'Canciones que me gustan'...")
+            
+            # Intentar encontrar la fila usando el enlace específico de Spotify para canciones guardadas
+            # El enlace contiene ':saved' al final del URI de Spotify
+            row = page.get_by_role("row").filter(has=page.locator('a[href*=":saved"]')).first
+            
+            if row.count() == 0:
+                print("⚠ No se detectó el enlace ':saved', probando con patrones de texto...")
+                patterns = [r"^Liked$", r"Liked Songs", r"Canciones que me gustan", r"Tus me gusta"]
+                for p in patterns:
+                    row_locator = page.get_by_role("row").filter(has_text=re.compile(p, re.IGNORECASE))
+                    if row_locator.count() > 0:
+                        row = row_locator.first
+                        print(f"✅ Encontrada fila con patrón: {p}")
+                        break
             else:
-                # Buscamos el botón de Exportar/Export dentro de esa fila
+                print("✅ Encontrada fila de 'Liked' por identificador de enlace.")
+            
+            if row.count() > 0:
+                # Buscamos el botón de Exportar/Export EXCLUSIVAMENTE dentro de esa fila
                 export_button = row.locator('button').filter(has_text=re.compile(r"Exportar|Export", re.IGNORECASE)).first
-
-            if export_button.count() > 0:
-                print("📥 Iniciando descarga...")
-                with page.expect_download(timeout=60000) as download_info:
-                    export_button.click()
-
-                download = download_info.value
-                target_path = os.path.join(BASE_DIR, "playlist.csv")
-                download.save_as(target_path)
-                print(f"✅ ¡Éxito! Archivo guardado como: {target_path}")
+                
+                if export_button.count() > 0:
+                    print("📥 Iniciando descarga de la fila seleccionada...")
+                    with page.expect_download(timeout=60000) as download_info:
+                        export_button.click()
+                    
+                    download = download_info.value
+                    target_path = os.path.join(BASE_DIR, "playlist.csv")
+                    download.save_as(target_path)
+                    print(f"✅ ¡Éxito! Archivo guardado como: {target_path}")
+                else:
+                    print("❌ No se pudo encontrar el botón de Exportar dentro de la fila.")
             else:
-                print("❌ No se pudo encontrar el botón de Exportar.")
+                print("❌ No se encontró la fila de canciones favoritas.")
 
             
         except Exception as e:
