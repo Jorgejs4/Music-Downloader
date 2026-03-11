@@ -1,16 +1,10 @@
 import os
 import json
 import time
-import builtins
-import spotipy
-from spotipy.oauth2 import SpotifyOAuth
 import sys
 import subprocess
+import re
 from dotenv import load_dotenv
-
-# Monkeypatch para corregir bug de spotipy en Python 3.13+
-if not hasattr(builtins, 'raw_input'):
-    builtins.raw_input = builtins.input
 
 # Cargar variables de entorno
 load_dotenv()
@@ -22,13 +16,10 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_FILE = os.path.join(BASE_DIR, "downloaded.json")
 MAIN_SCRIPT = os.path.join(BASE_DIR, "musicDownloader3.py")
 
-CLIENT_ID = os.environ.get("SPOTIFY_CLIENT_ID")
-CLIENT_SECRET = os.environ.get("SPOTIFY_CLIENT_SECRET")
-REDIRECT_URI = os.environ.get("SPOTIFY_REDIRECT_URI", "http://localhost:8888/callback")
-PLAYLIST_ID = os.environ.get("SPOTIFY_PLAYLIST_ID")
-SCOPE = "user-library-read playlist-read-private"
+# El usuario puede poner el ID o la URL completa
+PLAYLIST_INPUT = os.environ.get("SPOTIFY_PLAYLIST_URL") or os.environ.get("SPOTIFY_PLAYLIST_ID")
 
-# Cargar base de datos local de canciones ya descargadas
+# Cargar base de datos local
 if os.path.exists(DB_FILE):
     try:
         with open(DB_FILE, "r", encoding="utf-8") as f:
@@ -38,66 +29,59 @@ if os.path.exists(DB_FILE):
 else:
     downloaded = set()
 
-def get_songs(sp):
-    """Obtiene canciones de 'Liked Songs' o de una Playlist específica"""
-    results = []
-    offset = 0
+def get_songs_via_ytdlp(playlist_url):
+    """Usa yt-dlp para obtener los nombres de las canciones sin usar la API de Spotify"""
+    print(f"🔍 Extrayendo canciones de la Playlist: {playlist_url}...")
+    print("⏳ Esto puede tardar unos segundos según el tamaño de la lista...")
     
-    if PLAYLIST_ID:
-        print(f"🔍 Obteniendo canciones de la Playlist: {PLAYLIST_ID}...")
-        while True:
-            response = sp.playlist_items(PLAYLIST_ID, limit=50, offset=offset)
-            if not response['items']: break
-            for item in response['items']:
-                track = item['track']
-                if not track: continue # Evitar errores con tracks borrados
-                results.append({
-                    "id": track['id'],
-                    "title": track['name'],
-                    "artist": track['artists'][0]['name'],
-                    "album": track['album']['name']
-                })
-            offset += len(response['items'])
-            print(f"📦 Cargadas {offset} canciones...")
-    else:
-        print("🔍 Obteniendo tus 'Canciones que me gustan'...")
-        while True:
-            response = sp.current_user_saved_tracks(limit=50, offset=offset)
-            if not response['items']: break
-            for item in response['items']:
-                track = item['track']
-                results.append({
-                    "id": track['id'],
-                    "title": track['name'],
-                    "artist": track['artists'][0]['name'],
-                    "album": track['album']['name']
-                })
-            offset += len(response['items'])
-            print(f"📦 Cargadas {offset} canciones...")
+    # Limpiar el enlace si tiene ?si=...
+    clean_url = playlist_url.split('?')[0]
+    if not clean_url.startswith('http'):
+        clean_url = f"https://open.spotify.com/playlist/{clean_url}"
+
+    cmd = [
+        "yt-dlp",
+        "--flat-playlist",
+        "--dump-single-json",
+        "--quiet",
+        clean_url
+    ]
+    
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        data = json.loads(result.stdout)
+        
+        songs = []
+        for entry in data.get('entries', []):
+            # yt-dlp suele devolver el título como "Artista - Canción" en Spotify
+            title_full = entry.get('title', 'Unknown')
+            # Intentar separar artista y título si es posible
+            if " - " in title_full:
+                artist, title = title_full.split(" - ", 1)
+            else:
+                artist, title = "Unknown Artist", title_full
             
-    return results
+            songs.append({
+                "id": entry.get('id') or entry.get('url'), # Usamos el ID de spotify que nos da yt-dlp
+                "title": title.strip(),
+                "artist": artist.strip(),
+                "album": "Spotify Playlist"
+            })
+        return songs
+    except Exception as e:
+        print(f"❌ Error al usar yt-dlp: {e}")
+        return []
 
 def sync():
-    if not (CLIENT_ID and CLIENT_SECRET):
-        print("❌ ERROR: Configura SPOTIFY_CLIENT_ID y SPOTIFY_CLIENT_SECRET en tu .env")
+    if not PLAYLIST_INPUT:
+        print("❌ ERROR: Configura SPOTIFY_PLAYLIST_URL en tu .env")
+        print("Ejemplo: SPOTIFY_PLAYLIST_URL=https://open.spotify.com/playlist/tu_id")
         return
 
-    # Autenticación
-    sp = spotipy.Spotify(auth_manager=SpotifyOAuth(
-        client_id=CLIENT_ID,
-        client_secret=CLIENT_SECRET,
-        redirect_uri=REDIRECT_URI,
-        scope=SCOPE,
-        open_browser=False
-    ))
-
-    try:
-        all_songs = get_songs(sp)
-    except Exception as e:
-        print(f"❌ Error al obtener canciones de Spotify: {e}")
-        if "403" in str(e):
-            print("\n💡 TIP: Spotify está bloqueando el acceso a 'Liked Songs'.")
-            print("Crea una Playlist, pon tus canciones ahí y añade SPOTIFY_PLAYLIST_ID a tu .env")
+    all_songs = get_songs_via_ytdlp(PLAYLIST_INPUT)
+    
+    if not all_songs:
+        print("ℹ No se encontraron canciones. Asegúrate de que la playlist sea PÚBLICA.")
         return
 
     new_songs = [s for s in all_songs if s['id'] not in downloaded]
@@ -114,15 +98,16 @@ def sync():
             "-a", song['artist'],
             "-t", song['title'],
             "--album", song['album'],
-            "--send" # En Termux esto disparará el guardado local y escaneo de medios
+            "--send"
         ]
         
         try:
             subprocess.run(cmd, check=True)
             # Registrar como descargada
-            downloaded.add(song['id'])
-            with open(DB_FILE, "w", encoding="utf-8") as f:
-                json.dump(list(downloaded), f, indent=4)
+            if song['id']:
+                downloaded.add(song['id'])
+                with open(DB_FILE, "w", encoding="utf-8") as f:
+                    json.dump(list(downloaded), f, indent=4)
         except Exception as e:
             print(f"❌ Error descargando {song['title']}: {e}")
 
