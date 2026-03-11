@@ -1,3 +1,21 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+env/
+venv/
 .env
-SPOTIFY_CLIENT_ID     = 6b15b76cdde.txt
-Spotify.txt
+
+# Proyecto
+canciones_auto/
+temp_downloads/
+spotify_session/
+downloaded.json
+playlist.csv
+
+# Otros
+.DS_Store
+*.log
+GEMINI.md
