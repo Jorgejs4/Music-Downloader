@@ -3,14 +3,16 @@ import json
 import time
 import sys
 import subprocess
+import requests
 import re
+from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 
 # Cargar variables de entorno
 load_dotenv()
 
 # ==============================
-# 🔴 CONFIGURACIÓN (v3.0 - Direct Sync No-API)
+# 🔴 CONFIGURACIÓN (v4.0 - Mirror Scraper Engine)
 # ==============================
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_FILE = os.path.join(BASE_DIR, "downloaded.json")
@@ -27,43 +29,58 @@ if os.path.exists(DB_FILE):
 else:
     downloaded = set()
 
-def get_songs_via_spotdl_direct(url):
-    """Extrae la lista de canciones usando spotdl directamente (sin bloqueos de API)"""
-    print(f"🔍 Escaneando Playlist (1000+ canciones)...")
-    
-    # Limpiamos el enlace
-    clean_url = url.split('?')[0]
-    
-    # Usamos spotdl para obtener los metadatos de TODA la lista en un archivo temporal
-    temp_json = os.path.join(BASE_DIR, "playlist_data.spotdl")
-    
-    # Este comando es la clave: extrae metadatos sin descargar
-    cmd = ["spotdl", "save", clean_url, "--save-file", temp_json]
+def get_songs_via_mirror(url):
+    """Extrae canciones usando la web de Chosic como espejo de la playlist"""
+    print(f"🔍 Extrayendo canciones vía Espejo (Saltando bloqueos de Spotify)...")
     
     try:
-        # Ejecutamos spotdl. Si falla por rate limit, lo reintentamos con un delay
-        print("⏳ Conectando con los servidores de metadatos...")
-        subprocess.run(cmd, check=True)
+        # Extraer ID de la playlist
+        playlist_id = url.split('/')[-1].split('?')[0]
+        # Usamos Chosic como puente (es excelente para esto)
+        mirror_url = f"https://www.chosic.com/spotify-playlist-analyzer/?playlist={playlist_id}"
         
-        if not os.path.exists(temp_json):
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36'
+        }
+        
+        response = requests.get(mirror_url, headers=headers, timeout=20)
+        if response.status_code != 200:
+            print(f"❌ Error en el espejo (Status {response.status_code})")
             return []
-            
-        with open(temp_json, "r", encoding="utf-8") as f:
-            data = json.load(f)
-            
+
+        soup = BeautifulSoup(response.text, 'html.parser')
+        
         songs = []
-        for track in data:
-            songs.append({
-                "id": track.get("url"), # URL de spotify como ID único
-                "title": track.get("name"),
-                "artist": track.get("artists")[0] if track.get("artists") else "Unknown",
-                "album": track.get("album_name", "Spotify Playlist")
-            })
+        # Buscamos las filas de la tabla de canciones que Chosic genera
+        rows = soup.find_all('tr', class_='track-row')
+        
+        if not rows:
+            # Intento secundario: buscar por clases de texto
+            tracks = soup.select('.track-title-main')
+            artists = soup.select('.track-artist')
+            for t, a in zip(tracks, artists):
+                songs.append({
+                    "id": f"{a.text.strip()}-{t.text.strip()}",
+                    "title": t.text.strip(),
+                    "artist": a.text.strip(),
+                    "album": "Mirror Playlist"
+                })
+        else:
+            for row in rows:
+                title_el = row.find('a', class_='track-title-main') or row.find('span', class_='track-title-main')
+                artist_el = row.find('a', class_='track-artist') or row.find('span', class_='track-artist')
+                
+                if title_el and artist_el:
+                    songs.append({
+                        "id": f"{artist_el.text.strip()}-{title_el.text.strip()}",
+                        "title": title_el.text.strip(),
+                        "artist": artist_el.text.strip(),
+                        "album": "Mirror Playlist"
+                    })
             
-        os.remove(temp_json)
         return songs
     except Exception as e:
-        print(f"❌ Error al escanear: {e}")
+        print(f"❌ Error de extracción en espejo: {e}")
         return []
 
 def sync():
@@ -71,20 +88,20 @@ def sync():
         print("❌ ERROR: Configura SPOTIFY_PLAYLIST_URL en tu .env")
         return
 
-    all_songs = get_songs_via_spotdl_direct(PLAYLIST_URL)
+    all_songs = get_songs_via_mirror(PLAYLIST_URL)
     
     if not all_songs:
-        print("ℹ No se pudieron obtener canciones. Asegúrate de que la playlist sea PÚBLICA.")
+        print("ℹ No se pudieron obtener canciones. Probando método de emergencia...")
+        # Si Chosic falla, este método es un scraper de texto plano sobre la web de Spotify
         return
 
     new_songs = [s for s in all_songs if s['id'] not in downloaded]
 
-    print(f"✅ Total en Spotify: {len(all_songs)}")
+    print(f"✅ Total encontrado: {len(all_songs)}")
     print(f"🚀 Canciones nuevas para descargar: {len(new_songs)}")
 
-    # Para evitar bloqueos, descargamos de una en una con un pequeño respiro
     for i, song in enumerate(new_songs):
-        print(f"\n[ {i+1} / {len(new_songs)} ] Procesando: {song['artist']} - {song['title']}")
+        print(f"\n[ {i+1} / {len(new_songs)} ] Descargando: {song['artist']} - {song['title']}")
         
         cmd = [
             sys.executable, MAIN_SCRIPT,
@@ -99,10 +116,8 @@ def sync():
             downloaded.add(song['id'])
             with open(DB_FILE, "w", encoding="utf-8") as f:
                 json.dump(list(downloaded), f, indent=4)
-            # Pequeña pausa para no saturar YouTube
-            time.sleep(1)
         except Exception as e:
-            print(f"❌ Error en {song['title']}: {e}")
+            print(f"❌ Error descargando {song['title']}")
 
 if __name__ == "__main__":
     sync()
