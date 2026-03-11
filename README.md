@@ -1,43 +1,53 @@
-# 🎵 Music Downloader (Spotify → YouTube MP3)
+# 🎵 Music Downloader (Spotify → YouTube MP3) v4.0
 
-Herramienta automatizada para descargar canciones de Spotify con la mejor calidad de YouTube, incluyendo metadatos, portadas y letras sincronizadas (.LRC).
+Herramienta automatizada para descargar canciones de Spotify con la mejor calidad de YouTube (320kbps), incluyendo metadatos ID3v2.3, portadas y letras sincronizadas (.LRC).
 
 ---
 
 ## 🚀 Propósito del Proyecto
-Este conjunto de scripts permite automatizar el flujo de descarga de música para reproductores locales (como Retro Music en Android).
+Este ecosistema permite automatizar el flujo completo de descarga y etiquetado para reproductores locales (como Retro Music en Android).
 
-- **Busca** canciones en YouTube con la máxima fidelidad posible.
-- **Descarga** y convierte a MP3 (320kbps recomendado).
-- **Etiqueta** con metadatos reales de Spotify (Título, Artista, Álbum, Año).
-- **Descarga letras** normales y sincronizadas (LRC) mediante Genius y LRCLib.
-- **Sincroniza** mediante ADB a tu dispositivo Android (Próximamente: Flujo directo en Termux).
-
----
-
-## 📂 Estructura de Archivos
-- **`musicDownloader3.py`**: El motor principal. Gestiona las descargas (`yt-dlp`), el etiquetado (`mutagen`) y la obtención de letras.
-- **`music_csv_auto.py`**: Procesa listas de reproducción masivas desde un archivo `playlist.csv` (exportado de Spotify).
-- **`auto_sync.py`**: Orquestador principal que coordina el robot de Exportify y la descarga.
-- **`exportify_bot.py`**: Automatización de navegador para obtener el CSV de tus canciones de Spotify.
-- **`downloaded.json`**: Base de datos local para evitar descargas duplicadas.
+- **Busca** canciones en YouTube con la máxima fidelidad posible (prioriza audios oficiales).
+- **Descarga** y convierte a MP3 con 320kbps CBR.
+- **Etiqueta** con metadatos de Spotify (Título, Artista, Álbum, Año).
+- **Letras Sincronizadas**: Descarga archivos `.lrc` mediante **LRCLib** y letras normales (`USLT`) mediante **Genius**.
+- **Base de Datos**: Usa `downloaded.json` para evitar descargar duplicados.
+- **Entorno Híbrido**: Detección inteligente de entorno (PC vs Termux) para guardar archivos localmente o enviarlos vía ADB.
 
 ---
 
-## 🛠️ Próximos Pasos: Migración a Termux
-Estamos trabajando en un flujo nativo para **Android (Termux)** para que no necesites un ordenador encendido:
-1.  **Eliminar dependencia de ADB**: Guardar directamente en el almacenamiento interno del móvil.
-2.  **API de Spotify**: Usar la API oficial para leer tus "Liked Songs" sin necesidad de archivos CSV manuales.
-3.  **Ejecución 24/7**: Descargar música en segundo plano desde el móvil.
+## 📂 Estructura de Archivos (Core)
+- **`musicDownloader3.py`**: El motor principal v4.0. Gestiona descargas (`yt-dlp`), etiquetado (`mutagen`) y letras.
+- **`music_csv_auto.py`**: Procesa `playlist.csv` (exportado de Spotify), gestiona la base de datos y la organización de carpetas.
+- **`auto_sync.py`**: Orquestador principal que coordina el bot de Exportify y la descarga.
+- **`exportify_bot.py`**: Automatización con Playwright para extraer tus "Liked Songs" de Spotify.
+- **`spotify_sync.py`**: Alternativa "Ghost Mode" que sincroniza vía scraping web sin necesidad de CSV.
+
+---
+
+## 📱 Solución Termux (Pantalla Apagada)
+Si usas Termux y el script se detiene al apagar la pantalla, Android está matando el proceso por ahorro de energía.
+
+### 1. Activar Wake Lock
+Ejecuta el siguiente comando en Termux antes de lanzar el script:
+```bash
+termux-wake-lock
+```
+Esto evita que la CPU entre en modo de suspensión (CPU sleep).
+
+### 2. Configuración de Android
+- Ve a **Ajustes > Aplicaciones > Termux**.
+- En **Batería**, selecciona **Sin restricciones** (u "Optimizar uso de batería" -> "No optimizar").
+- Asegúrate de que Termux tenga el permiso de "Ejecución en segundo plano".
 
 ---
 
 ## ⚙️ Configuración (.env)
-Asegúrate de tener un archivo `.env` con las siguientes claves:
+Asegúrate de tener un archivo `.env` (basado en `.env.template`) con:
 - `SPOTIFY_CLIENT_ID`
 - `SPOTIFY_CLIENT_SECRET`
 - `GENIUS_ACCESS_TOKEN`
-- `OUTPUT_DIR` (Carpeta donde se guardará la música)
+- `OUTPUT_DIR` (Donde se guardará la música, ej: `/sdcard/Music/` en Termux)
 
 ---
 
@@ -47,10 +57,10 @@ Para lanzar la sincronización completa en PC:
 ./Lanzar_Sincronizacion.bat
 ```
 
-Para uso manual:
+Para uso manual en Termux/PC:
 ```bash
 python musicDownloader3.py -a "Nombre Artista" -t "Nombre Canción"
 ```
 
 ---
-*Mantenido por [Jorgejs4](https://github.com/Jorgejs4)*
+*Mantenido por [Jorgejs4](https://github.com/Jorgejs4) - v4.0 Marzo 2026*
