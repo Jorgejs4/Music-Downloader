@@ -33,11 +33,12 @@ def get_songs_via_spotdl(url):
     print(f"🔍 Extrayendo canciones de la Playlist con spotdl...")
     temp_json = os.path.join(BASE_DIR, "temp_playlist.spotdl")
     
-    # Comando para guardar los metadatos en un archivo JSON sin descargar nada
+    # Eliminamos capture_output para que veas el progreso en Termux
     cmd = ["spotdl", "save", url, "--save-file", temp_json]
     
     try:
-        subprocess.run(cmd, check=True, capture_output=True)
+        # Permitimos que spotdl escriba en la consola directamente
+        subprocess.run(cmd, check=True)
         if not os.path.exists(temp_json):
             return []
             
