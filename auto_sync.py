@@ -41,8 +41,23 @@ def send_csv_to_phone():
         dest = "/sdcard/Download/playlist.csv"
         subprocess.run(["adb", "push", PROJECT_CSV, dest], check=True)
         print(f"✅ CSV enviado correctamente a: {dest}")
+
+        # --- AUTO-ARRANQUE EN MÓVIL ---
+        print("🚀 Lanzando descarga en el móvil automáticamente...")
+        # 1. Abrir Termux
+        subprocess.run(["adb", "shell", "am", "start", "-n", "com.termux/.TermuxActivity"], check=True)
+        time.sleep(2) # Esperar a que abra
+        # 2. Escribir el comando y pulsar Enter (simulado)
+        # Usamos %s para representar espacios en algunos comandos adb o escapamos espacios
+        cmd_mvl = "cd Music-Downloader && python music_csv_auto.py"
+        # Escapamos los espacios para el comando 'input text'
+        cmd_escaped = cmd_mvl.replace(" ", "\\ ")
+        subprocess.run(["adb", "shell", "input", "text", cmd_escaped], check=True)
+        subprocess.run(["adb", "shell", "input", "keyevent", "66"], check=True) # 66 es ENTER
+        print("✅ ¡Móvil activado y descargando!")
+
     except Exception as e:
-        print(f"❌ Error al enviar CSV por ADB: {e}")
+        print(f"❌ Error al interactuar con el móvil por ADB: {e}")
 
 def run_sync():
     print(f"[{datetime.now().strftime('%H:%M:%S')}] 🤖 Lanzando robot de Exportify...")
