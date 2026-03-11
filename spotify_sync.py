@@ -5,14 +5,14 @@ import sys
 import subprocess
 import requests
 import re
-from bs4 import BeautifulSoup
+import base64
 from dotenv import load_dotenv
 
 # Cargar variables de entorno
 load_dotenv()
 
 # ==============================
-# 🔴 CONFIGURACIÓN (v4.0 - Mirror Scraper Engine)
+# 🔴 CONFIGURACIÓN (v5.0 - SEO Scraper Engine)
 # ==============================
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_FILE = os.path.join(BASE_DIR, "downloaded.json")
@@ -29,58 +29,74 @@ if os.path.exists(DB_FILE):
 else:
     downloaded = set()
 
-def get_songs_via_mirror(url):
-    """Extrae canciones usando la web de Chosic como espejo de la playlist"""
-    print(f"🔍 Extrayendo canciones vía Espejo (Saltando bloqueos de Spotify)...")
+def get_songs_via_seo(url):
+    """Extrae canciones del bloque SEO de la página pública de Spotify"""
+    print(f"🔍 Extrayendo canciones (Modo Fantasma v5.0)...")
     
     try:
-        # Extraer ID de la playlist
-        playlist_id = url.split('/')[-1].split('?')[0]
-        # Usamos Chosic como puente (es excelente para esto)
-        mirror_url = f"https://www.chosic.com/spotify-playlist-analyzer/?playlist={playlist_id}"
-        
         headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36'
+            'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile/15E148 Safari/604.1',
+            'Accept-Language': 'es-ES,es;q=0.9',
         }
         
-        response = requests.get(mirror_url, headers=headers, timeout=20)
+        response = requests.get(url, headers=headers, timeout=20)
         if response.status_code != 200:
-            print(f"❌ Error en el espejo (Status {response.status_code})")
+            print(f"❌ Error al acceder a Spotify (Status {response.status_code})")
             return []
 
-        soup = BeautifulSoup(response.text, 'html.parser')
-        
+        # Spotify guarda los datos en un bloque de script llamado 'session' o 'initial-state'
+        # Vamos a buscar todos los bloques de script y extraer el que tenga más cara de JSON de música
         songs = []
-        # Buscamos las filas de la tabla de canciones que Chosic genera
-        rows = soup.find_all('tr', class_='track-row')
         
-        if not rows:
-            # Intento secundario: buscar por clases de texto
-            tracks = soup.select('.track-title-main')
-            artists = soup.select('.track-artist')
-            for t, a in zip(tracks, artists):
-                songs.append({
-                    "id": f"{a.text.strip()}-{t.text.strip()}",
-                    "title": t.text.strip(),
-                    "artist": a.text.strip(),
-                    "album": "Mirror Playlist"
-                })
-        else:
-            for row in rows:
-                title_el = row.find('a', class_='track-title-main') or row.find('span', class_='track-title-main')
-                artist_el = row.find('a', class_='track-artist') or row.find('span', class_='track-artist')
+        # Patrón para el formato moderno (JSON base64 o plano)
+        match = re.search(r'id="initial-state">([^<]+)<', response.text)
+        if match:
+            try:
+                # A veces viene en base64, a veces en plano
+                raw_data = match.group(1)
+                try:
+                    decoded = base64.b64decode(raw_data).decode('utf-8')
+                    data = json.loads(decoded)
+                except:
+                    data = json.loads(raw_data)
                 
-                if title_el and artist_el:
+                # Navegar por el laberinto de Spotify para encontrar los tracks
+                # Este path suele cambiar, así que buscamos "items" de forma recursiva
+                def find_tracks(obj):
+                    if isinstance(obj, dict):
+                        if 'track' in obj and 'name' in obj['track']:
+                            t = obj['track']
+                            songs.append({
+                                "id": t.get('id') or t.get('uri'),
+                                "title": t.get('name'),
+                                "artist": t['artists'][0]['name'] if t.get('artists') else "Unknown",
+                                "album": t.get('album', {}).get('name', "Playlist")
+                            })
+                        else:
+                            for v in obj.values(): find_tracks(v)
+                    elif isinstance(obj, list):
+                        for item in obj: find_tracks(item)
+
+                find_tracks(data)
+            except: pass
+
+        # Failsafe: Búsqueda de patrones directos si el JSON falla
+        if not songs:
+            # Patrón: "trackName":"Nombre","artistName":"Artista"
+            pattern = r'"name":"([^"]+?)","artists":\[{"name":"([^"]+?)"}\]'
+            found = re.findall(pattern, response.text)
+            for title, artist in found:
+                if title != "Spotify" and title not in [s['title'] for s in songs]:
                     songs.append({
-                        "id": f"{artist_el.text.strip()}-{title_el.text.strip()}",
-                        "title": title_el.text.strip(),
-                        "artist": artist_el.text.strip(),
-                        "album": "Mirror Playlist"
+                        "id": f"{artist}-{title}",
+                        "title": title,
+                        "artist": artist,
+                        "album": "Spotify Playlist"
                     })
-            
+
         return songs
     except Exception as e:
-        print(f"❌ Error de extracción en espejo: {e}")
+        print(f"❌ Error en Modo Fantasma: {e}")
         return []
 
 def sync():
@@ -88,11 +104,12 @@ def sync():
         print("❌ ERROR: Configura SPOTIFY_PLAYLIST_URL en tu .env")
         return
 
-    all_songs = get_songs_via_mirror(PLAYLIST_URL)
+    all_songs = get_songs_via_seo(PLAYLIST_URL)
     
     if not all_songs:
-        print("ℹ No se pudieron obtener canciones. Probando método de emergencia...")
-        # Si Chosic falla, este método es un scraper de texto plano sobre la web de Spotify
+        print("ℹ No se pudieron obtener canciones automáticamente.")
+        print("💡 ÚLTIMO RECURSO: Como ya tienes el 'playlist.csv', ejecuta:")
+        print("   python music_csv_auto.py")
         return
 
     new_songs = [s for s in all_songs if s['id'] not in downloaded]
@@ -117,7 +134,7 @@ def sync():
             with open(DB_FILE, "w", encoding="utf-8") as f:
                 json.dump(list(downloaded), f, indent=4)
         except Exception as e:
-            print(f"❌ Error descargando {song['title']}")
+            print(f"❌ Error en {song['title']}")
 
 if __name__ == "__main__":
     sync()
