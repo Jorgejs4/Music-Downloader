@@ -5,6 +5,7 @@ import csv
 import sys
 import subprocess
 import shutil
+import re
 from dotenv import load_dotenv
 
 # Cargar variables de entorno
@@ -22,21 +23,34 @@ DB_FILE = os.path.join(BASE_DIR, "downloaded.json")
 MAIN_SCRIPT = os.path.join(BASE_DIR, "musicDownloader3.py")
 
 def find_and_move_csv():
-    """Busca un archivo CSV de Spotify en la carpeta de descargas del móvil"""
+    """Busca un archivo CSV de Spotify en la carpeta de descargas del móvil, priorizando números altos (1), (2)..."""
     if not IS_ANDROID: return False
     
     print(f"🔍 Buscando nuevos archivos CSV en {DOWNLOADS_DIR}...")
-    files = [f for f in os.listdir(DOWNLOADS_DIR) if f.endswith('.csv') and ('spotify' in f.lower() or 'playlist' in f.lower() or 'liked' in f.lower())]
+    # Filtro básico de archivos CSV que parecen ser de Spotify
+    pattern_files = [f for f in os.listdir(DOWNLOADS_DIR) if f.endswith('.csv') and ('spotify' in f.lower() or 'playlist' in f.lower() or 'liked' in f.lower())]
     
-    if not files:
+    if not pattern_files:
         return False
     
-    # Coger el más reciente
-    latest_file = max([os.path.join(DOWNLOADS_DIR, f) for f in files], key=os.path.getctime)
-    print(f"📦 Encontrado nuevo CSV: {os.path.basename(latest_file)}")
-    shutil.move(latest_file, PROJECT_CSV)
-    print(f"✅ Movido a: {PROJECT_CSV}")
-    return True
+    # Lógica para detectar el número entre paréntesis
+    def extract_number(filename):
+        match = re.search(r'\((\d+)\)', filename)
+        return int(match.group(1)) if match else 0
+
+    # Ordenar primero por el número en el nombre (descendente) y luego por fecha de creación
+    pattern_files.sort(key=lambda x: (extract_number(x), os.path.getctime(os.path.join(DOWNLOADS_DIR, x))), reverse=True)
+    
+    latest_file = os.path.join(DOWNLOADS_DIR, pattern_files[0])
+    print(f"📦 Encontrado archivo más reciente (Prioridad: número alto): {os.path.basename(latest_file)}")
+    
+    try:
+        shutil.move(latest_file, PROJECT_CSV)
+        print(f"✅ Movido y renombrado a: {PROJECT_CSV}")
+        return True
+    except Exception as e:
+        print(f"❌ Error al mover el archivo: {e}")
+        return False
 
 def process_csv():
     if not os.path.exists(PROJECT_CSV):
